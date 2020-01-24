@@ -1,0 +1,12 @@
+{
+  "commit": {
+    "commit": "afe61618da478daa09714cae962e6b7dd0c64f1a",
+    "author": "Carl Boettiger <cboettig@gmail.com>",
+    "time": "2020-01-24 18:54:20",
+    "files": 2,
+    "merge": true,
+    "message": "merge\n"
+  },
+  "remote": "https://github.com/ropensci/rdflib",
+  "pkg": "rdflib"
+}
