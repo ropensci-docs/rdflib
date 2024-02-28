@@ -1,0 +1,12 @@
+{
+  "commit": {
+    "commit": "83c79f3802f34c10dae18f685c4918ae6a893ddf",
+    "author": "olivroy <52606734+olivroy@users.noreply.github.com>",
+    "time": "2023-12-29 19:36:00",
+    "files": 1,
+    "merge": false,
+    "message": "Update DESCRIPTION (#49)\n\n"
+  },
+  "repo": "https://github.com/ropensci/rdflib",
+  "pkg": "rdflib"
+}
