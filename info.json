@@ -1,0 +1,13 @@
+{
+  "commit": {
+    "commit": "c2b3f3a5c28648e3f87c1ccb2e2e49bebd082e2d",
+    "author": "Carl Boettiger <cboettig@gmail.com>",
+    "time": "2024-08-05T18:51:35Z",
+    "files": 3,
+    "merge": false,
+    "message": "address vignette issue on CRAN\n"
+  },
+  "repo": "https://github.com/ropensci/rdflib",
+  "pkg": "rdflib",
+  "time": "2026-08-30T07:35:15Z"
+}

@@ -1,0 +1,428 @@
+# Working with Database Storage Backends in \`rdflib\`
+
+By default, `rdflib` stores triples in memory, which can be read in from
+and written out to files on disk using a variety of serializations
+(`rdfxml`, `json-ld`, `ntriples`, `nquads` or `turtle`). This is
+analgous to reading in a `data.frame` object from a `csv`, `tsv`, or
+other text-delimited file, which requires the full data object to be
+read into memory before a user can manipulate it. This approach runs
+into limitations with very large datasets, which may exceed the memory
+available. Just as R packages such as `dplyr` offer the ability to
+perform manipulations with very large data through a connection to a
+database backend such as SQLite, MySQL or PostgreSQL, `rdflib` can rely
+on these and other databases to provide a disk-based backend.
+
+#### Installation
+
+Unfortunately, at this time, support for these storage devices is not
+included in the prebuild Mac and Windows binaries of the `redland` R
+package. Users wanting to take advantage of disk-based storage must
+instead build and install the `redland` R package from source; and in
+some cases, also build the `redland` C libraries from source. This
+package provides a
+[Dockerfile](https://github.com/ropensci/rdflib/blob/master/inst/docker/Dockerfile)
+containing a portable recipe for building the library with support for
+the 5 main backend storage devices: SQLite, MySQL, PostgreSQL, Virtuoso,
+and Berkeley DB. This vignette documents the installation and use of
+these devices.
+
+Also see the [official
+documentation](http://librdf.org/docs/api/redland-storage-modules.md)
+for the redland C library discussing all supported storage devices.
+
+## Benchmarks
+
+Here we show examples of reading in a modest set of 190,000 triples from
+an `nquads` file and executing a simple SPARQL query using each the five
+backends supported by `rdflib`. First we load the libraries and prepare
+an example file by triple-ifying 10,000 rows of the `flights`
+data.frame:
+
+``` r
+
+library(rdflib)
+library(nycflights13)
+```
+
+``` r
+
+example <- flights[1e4,]
+
+system.time(
+write_nquads(example, "example.nq", prefix = "flights")
+)
+#>    user  system elapsed 
+#>   0.009   0.001   0.008
+
+system.time(
+write_nquads(flights, "flights.nq", prefix = "flights")
+)
+#>    user  system elapsed 
+#>  15.107   0.474  15.632
+```
+
+### In Memory
+
+Because the dataset is small enough to easily fit in memory, the default
+in-memory option is an obvious choice with excellent performance. Note
+that this option will not be possible with larger triplestores
+(e.g. with millions or more triples). Our testing has found that even on
+machines with 100GB+ of RAM, the redland in-memory backend is not able
+to take advantage of that additional memory and disk-based backends are
+required.
+
+``` r
+
+triplestore <- rdf()
+```
+
+``` r
+
+
+system.time(
+  read_nquads("example.nq", rdf = triplestore) # smaller set
+)
+#>    user  system elapsed 
+#>   0.002   0.000   0.002
+```
+
+``` r
+
+query <- 
+  'SELECT  ?carrier ?flight ?origin ?dep_delay
+WHERE {
+?flight <flights:carrier>  ?carrier .
+?flight <flights:dep_delay>  ?dep_delay .
+?flight <flights:origin> ?origin
+}'
+```
+
+``` r
+
+system.time(
+df <- rdf_query(triplestore, query)
+)
+#>    user  system elapsed 
+#>   0.011   0.008   0.019
+```
+
+``` r
+
+rdf_free(triplestore)
+```
+
+### BDB
+
+The [Berkeley DB](https://en.wikipedia.org/wiki/Berkeley_DB) is a simple
+key-value store
+
+> It is the most mature and primary persistent store and suitable for
+> large models, tested in the 2-3 million range.
+
+Berkeley DB is a simple disk-based storage option. Install both the
+redland libraries and the berkeley-db (e.g. `bd-dev` on Debian/Ubuntu)
+libraries, and then install `redland` from source. BDB is relatively
+fast for data too large for memory.
+
+``` r
+
+triplestore <- rdf(storage="BDB", new_db = TRUE)
+system.time(
+  read_nquads("flights.nq", rdf = triplestore)
+)
+#>    user  system elapsed 
+#>  55.985  15.686  71.787
+```
+
+``` r
+
+system.time(
+df <- rdf_query(triplestore, query)
+)
+#>    user  system elapsed 
+#>  15.001   0.216  15.222
+```
+
+``` r
+
+rdf_free(triplestore)
+## Becuase BDB is just a hash table, redland needs three separate files:
+unlink("rdflib-po2s.db")
+unlink("rdflib-so2p.db")
+unlink("rdflib-sp2o.db")
+```
+
+### Virtuoso
+
+Unlike the other backends which use general purpose relational databases
+or key-value stores,
+[Virtuoso](https://en.wikipedia.org/wiki/Virtuoso_Universal_Server)
+dedicated to RDF-based data. Virtuoso is a popular open source database
+for RDF with a rich set of built-in interfaces and features, but we can
+also interact with it directly through the `redland` bindings just like
+we do any other backend in `rdflib`. Virtuoso setup may be slightly more
+involved for individuals unfamiliar with it, but will probably provide
+the best performance in the case of very large triplestores. The example
+below shows a new database setup, but `rdflib` can also connect to any
+existing Virtuoso database.
+
+``` r
+
+triplestore <- rdf(storage = "virtuoso", 
+                   user = "dba", 
+                   password = "dba", 
+                   dsn = "Local Virtuoso"
+                   )
+
+system.time(
+  read_nquads("flights.nq", rdf = triplestore)
+)
+#>     user   system  elapsed 
+#>  111.500   84.856 3336.717
+```
+
+``` r
+
+system.time(
+df <- rdf_query(triplestore, query)
+)
+#>    user  system elapsed 
+#>  17.899   9.056 133.143
+df <- rdf_query(triplestore, "SELECT ?s ?p ?o WHERE{ ?s ?p ?o }")
+#> Warning: 1391187 parsing failures.
+#>     row col expected     actual         file
+#> 1338850   o a double _:r1011167 literal data
+#> 1338851   o a double _:r1011168 literal data
+#> 1338852   o a double _:r1011169 literal data
+#> 1338853   o a double _:r1011170 literal data
+#> 1338854   o a double _:r1012106 literal data
+#> ....... ... ........ .......... ............
+#> See problems(...) for more details.
+df
+#> # A tibble: 6,398,744 x 3
+#>    s          p                o
+#>    <chr>      <chr>        <dbl>
+#>  1 flights:1  flights:year  2013
+#>  2 flights:2  flights:year  2013
+#>  3 flights:3  flights:year  2013
+#>  4 flights:4  flights:year  2013
+#>  5 flights:5  flights:year  2013
+#>  6 flights:6  flights:year  2013
+#>  7 flights:7  flights:year  2013
+#>  8 flights:8  flights:year  2013
+#>  9 flights:9  flights:year  2013
+#> 10 flights:10 flights:year  2013
+#> # … with 6,398,734 more rows
+```
+
+``` r
+
+rdf_free(triplestore)
+```
+
+Or on remote virtuoso:
+
+``` r
+
+triplestore <- rdf(storage = "virtuoso", 
+                   user = "dba", 
+                   password = "dba", 
+                   host = "virtuoso:1111"
+                   )
+
+system.time(
+  read_nquads("flights.nq", rdf = triplestore)
+)
+#>       user     system    elapsed 
+#> 129710.695   2036.842 149941.651
+```
+
+### POSTGRES
+
+Postgres and MySQL are ubiquitious relational databases. This backend
+requires the `redland` binaries are built from source with this support
+enabled, which is not the case for pre-built Mac or Linux binaries.
+
+``` r
+
+triplestore <- rdf(storage = "postgres", 
+                   host = "postgres", 
+                   user = "postgres", 
+                   password = "rdflib", 
+                   new_db = TRUE)
+#> Warning in rdf_storage(storage, world, host, port, user, password,
+#> database, : postgres driver not found. Falling back on in-memory storage
+system.time(
+  read_nquads("flights.nq", rdf = triplestore)
+)
+#>    user  system elapsed 
+#>  31.803  20.715  52.586
+```
+
+``` r
+
+system.time(
+df <- rdf_query(triplestore, query)
+)
+#>    user  system elapsed 
+#>   5.449   0.032   5.483
+```
+
+``` r
+
+rdf_free(triplestore)
+```
+
+### MySQL
+
+``` r
+
+triplestore <- rdf(storage = "mysql", 
+                   host = "mariadb", 
+                   user = "root", 
+                   password = "rdflib", 
+                   database = "mysql",
+                   new_db = TRUE
+                  )
+#> Warning in rdf_storage(storage, world, host, port, user, password,
+#> database, : mysql driver not found. Falling back on in-memory storage
+  read_nquads("flights.nq", rdf = triplestore)
+#> Total of 1996496 triples, stored in hashes
+#> -------------------------------
+#>  
+#>  (preview supressed for performance)
+```
+
+``` r
+
+system.time(df <- rdf_query(triplestore, query))
+#>    user  system elapsed 
+#>   5.510   0.004   5.515
+```
+
+``` r
+
+rdf_free(triplestore)
+```
+
+### SQLite
+
+[SQLite](https://en.wikipedia.org/wiki/SQLite) is relatively easy to set
+up, but appears to have rather poor overall performance. Requires SQLite
+development libraries installed (should work ‘out-of-the-box’ with Mac
+binaries for `redland` package).
+
+``` r
+
+triplestore <- rdf(storage="sqlite", new_db = TRUE, name="rdflib.sqlite")
+#> Warning in rdf_storage(storage, world, host, port, user, password,
+#> database, : sqlite driver not found. Falling back on in-memory storage
+
+system.time(
+  read_nquads("flights.nq", rdf = triplestore)
+)
+#>    user  system elapsed 
+#>  31.607  20.219  51.857
+```
+
+``` r
+
+system.time(
+df <- rdf_query(triplestore, query)
+)
+#>    user  system elapsed 
+#>   5.559   0.028   5.588
+```
+
+``` r
+
+rdf_free(triplestore)
+```
+
+## Building redland with full backend support
+
+Getting full support for the above backend databases through the
+`redland` R package is not trivial. The `redland` R package provides
+bindings to the redland libraries. Unfortunately, commonly available
+binary versions of those libraries, such as `librdf0-dev` on Debian,
+`redland` on Mac OSX brew, and the statically linked versions for Mac
+and Windows shipping in the R package, do not build those libraries with
+the optional support for all backends. (NOTE: it is the C library itself
+which must be built from source with these options, not just the R
+package source). Consequently, users must build `librdf` from the
+original sources, <https://github.com/dajobe/librdf> with all backend
+linking libraries available, and then also build the `redland` R package
+from source, to be able to access all of these backends. On a Debian or
+Ubuntu system this looks like the following:
+
+``` bash
+apt-get update && apt-get -yq install \
+libxml2-dev \
+libcurl4-openssl-dev \
+libssl-dev \
+git \
+automake \
+libtool \
+gtk-doc-tools \
+bison \
+flex \
+libgmp-dev  \
+libmhash-dev \
+libgcrypt20-dev \
+libpcre3-dev \
+libv8-dev \
+libjq-dev \
+libpq-dev \
+libdb-dev \
+libsqlite3-dev \
+libmariadbclient-dev \
+librdf-storage-virtuoso \
+virtuoso-server \
+unixodbc-dev
+```
+
+Now we can build `raptor` (parsers), `rasqal` (sparql queries) and
+`rdflib` from source:
+
+    git clone git://github.com/dajobe/raptor.git && \
+    cd raptor && \
+    ./autogen.sh && \
+    make && \
+    make install && \
+    cd .. && \
+    git clone git://github.com/dajobe/rasqal.git && \
+    cd rasqal && \
+    ./autogen.sh && \
+    make && \
+    make install && \
+    cd .. && \
+    git clone git://github.com/dajobe/librdf.git && \
+    cd librdf && \
+    ./autogen.sh && \
+    make && \
+    make install
+
+A See the
+[Dockerfile](https://github.com/ropensci/rdflib/tree/master/inst/docker/Dockerfile)
+in `inst/docker` for an example of this, or simply use the
+[Rocker-based](https://rocker-project.org) image `ropensci/rdflib`.
+
+## Testing
+
+`rdflib` uses Circle-CI to test database backends using
+`docker-compose`. `docker-compose` pulls down dedicated docker
+containers for `postgres` and `mariadb`, along with the
+`ropensci/rdflib` container, which includes a version of `redland`
+compiled with support for all five major backend storage systems. See
+the
+[Dockerfile](https://github.com/ropensci/rdflib/tree/master/inst/docker/Dockerfile)
+in `inst/docker` and associated
+\[docker-compose.yml\]((<https://github.com/ropensci/rdflib/tree/master/docker-compose.yml>)
+used in testing for an example of this configuration. You can also pull
+the Docker image `ropensci/rdflib` from Docker Hub for testing with all
+these libraries installed.
+
+The badge below (also on the package README) indicates that these
+dedicated tests are passing.
+
+[![CircleCI](https://circleci.com/gh/ropensci/rdflib.svg?style=svg)](https://circleci.com/gh/ropensci/rdflib)
